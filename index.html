@@ -1,33 +1,325 @@
 <!DOCTYPE html>
 <html lang="en">
-
-
 <head>
-
-
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-
-    <title>the noxious weeds</title>
-
-
+    <title>Toxic Garden - Living Organisms</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         body {
-            padding:    0;
-            margin:     0;
-            text-align: center;     /* center <canvas> on the page */
+            overflow: hidden;
+            background: linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 50%, #0f0f1f 100%);
+            font-family: 'Courier New', monospace;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: rgba(0, 255, 100, 0.7);
+            z-index: 100;
+            font-size: 12px;
+            text-shadow: 0 0 10px rgba(0, 255, 100, 0.5);
+            pointer-events: none;
+            line-height: 1.6;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 100;
+        }
+        button {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(0, 255, 100, 0.3);
+            color: rgba(0, 255, 100, 0.8);
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        button:hover {
+            background: rgba(0, 255, 100, 0.1);
+            border-color: rgba(0, 255, 100, 0.6);
+            box-shadow: 0 0 20px rgba(0, 255, 100, 0.3);
         }
     </style>
-
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.1.9/p5.js"></script>
-    <script src="sketch.js"></script>
 </head>
-
-
 <body>
-    
-</body>
+    <div id="info">
+        TOXIC GARDEN v2.0<br>
+        Living organisms detected: <span id="count">0</span><br>
+        Click to spawn new species
+    </div>
+    <div id="controls">
+        <button onclick="resetGarden()">RESET GARDEN</button>
+        <button onclick="toggleGrowth()">PAUSE/RESUME</button>
+        <button onclick="mutate()">MUTATE ALL</button>
+    </div>
 
+    <script>
+        let organisms = [];
+        let particles = [];
+        let growthActive = true;
+        let time = 0;
+
+        class Organism {
+            constructor(x, y, dna) {
+                this.x = x;
+                this.y = y;
+                this.segments = [];
+                this.age = 0;
+                this.maxAge = random(200, 400);
+                this.branches = [];
+                this.dna = dna || {
+                    branchProbability: random(0.01, 0.05),
+                    segmentLength: random(3, 8),
+                    thickness: random(1, 4),
+                    color: {
+                        h: random(80, 140),
+                        s: random(60, 100),
+                        b: random(50, 90)
+                    },
+                    toxicity: random(0.3, 1.0),
+                    growthRate: random(0.5, 2),
+                    curviness: random(0.05, 0.15)
+                };
+                
+                this.angle = random(TWO_PI);
+                this.angleVel = random(-0.02, 0.02);
+                this.segments.push({x: x, y: y});
+            }
+
+            grow() {
+                if (!growthActive) return;
+                
+                this.age += this.dna.growthRate;
+                
+                if (this.age > this.maxAge) {
+                    this.die();
+                    return;
+                }
+
+                // Add new segment
+                if (frameCount % 2 === 0 && this.segments.length < 150) {
+                    let last = this.segments[this.segments.length - 1];
+                    
+                    // Organic movement with noise
+                    this.angle += this.angleVel;
+                    this.angle += map(noise(this.age * 0.01, this.x * 0.001), 0, 1, -this.dna.curviness, this.dna.curviness);
+                    
+                    // Add gravity-like pull
+                    this.angle += sin(this.age * 0.02) * 0.05;
+                    
+                    let newX = last.x + cos(this.angle) * this.dna.segmentLength;
+                    let newY = last.y + sin(this.angle) * this.dna.segmentLength;
+                    
+                    // Boundary wrapping for endless growth
+                    if (newX < 0) newX = width;
+                    if (newX > width) newX = 0;
+                    if (newY < 0) newY = height;
+                    if (newY > height) newY = 0;
+                    
+                    this.segments.push({x: newX, y: newY});
+                    
+                    // Branch creation
+                    if (random() < this.dna.branchProbability && this.branches.length < 5) {
+                        let branchDNA = {...this.dna};
+                        branchDNA.thickness *= 0.7;
+                        branchDNA.segmentLength *= 0.8;
+                        branchDNA.color.h += random(-20, 20);
+                        this.branches.push(new Organism(newX, newY, branchDNA));
+                    }
+                    
+                    // Emit toxic particles
+                    if (random() < this.dna.toxicity * 0.05) {
+                        particles.push(new ToxicParticle(newX, newY, this.dna.color));
+                    }
+                }
+            }
+
+            display() {
+                strokeWeight(this.dna.thickness);
+                
+                for (let i = 0; i < this.segments.length - 1; i++) {
+                    let progress = i / this.segments.length;
+                    let alpha = map(progress, 0, 1, 150, 20);
+                    
+                    // Pulsing glow effect
+                    let pulse = sin(time * 0.05 + i * 0.1) * 0.3 + 0.7;
+                    
+                    colorMode(HSB);
+                    let hue = (this.dna.color.h + sin(i * 0.1 + time * 0.02) * 10) % 360;
+                    stroke(hue, this.dna.color.s, this.dna.color.b * pulse, alpha);
+                    
+                    line(
+                        this.segments[i].x,
+                        this.segments[i].y,
+                        this.segments[i + 1].x,
+                        this.segments[i + 1].y
+                    );
+                    
+                    // Add glow
+                    if (i % 3 === 0) {
+                        strokeWeight(this.dna.thickness * 2);
+                        stroke(hue, this.dna.color.s - 30, 100, alpha * 0.3);
+                        line(
+                            this.segments[i].x,
+                            this.segments[i].y,
+                            this.segments[i + 1].x,
+                            this.segments[i + 1].y
+                        );
+                        strokeWeight(this.dna.thickness);
+                    }
+                }
+                
+                // Display branches
+                for (let branch of this.branches) {
+                    branch.grow();
+                    branch.display();
+                }
+            }
+
+            die() {
+                // Explosion of particles on death
+                let last = this.segments[this.segments.length - 1];
+                for (let i = 0; i < 20; i++) {
+                    particles.push(new ToxicParticle(last.x, last.y, this.dna.color, true));
+                }
+                
+                let index = organisms.indexOf(this);
+                if (index > -1) {
+                    organisms.splice(index, 1);
+                }
+            }
+        }
+
+        class ToxicParticle {
+            constructor(x, y, col, explosion = false) {
+                this.x = x;
+                this.y = y;
+                this.vx = explosion ? random(-3, 3) : random(-0.5, 0.5);
+                this.vy = explosion ? random(-3, 3) : random(-2, -0.5);
+                this.life = 255;
+                this.size = random(2, 6);
+                this.color = col;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.05; // Gravity
+                this.life -= 3;
+                this.size *= 0.98;
+            }
+
+            display() {
+                noStroke();
+                colorMode(HSB);
+                
+                // Outer glow
+                fill(this.color.h, this.color.s - 20, 100, this.life * 0.3);
+                circle(this.x, this.y, this.size * 2);
+                
+                // Core
+                fill(this.color.h, this.color.s, this.color.b, this.life);
+                circle(this.x, this.y, this.size);
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            colorMode(HSB);
+            
+            // Spawn initial organisms
+            for (let i = 0; i < 3; i++) {
+                organisms.push(new Organism(random(width), height - 50));
+            }
+        }
+
+        function draw() {
+            // Fade effect instead of clear
+            fill(0, 0, 0, 12);
+            noStroke();
+            rect(0, 0, width, height);
+            
+            time++;
+            
+            // Update and display organisms
+            for (let organism of organisms) {
+                organism.grow();
+                organism.display();
+            }
+            
+            // Update and display particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].display();
+                
+                if (particles[i].isDead()) {
+                    particles.splice(i, 1);
+                }
+            }
+            
+            // Ambient floating particles
+            if (frameCount % 10 === 0) {
+                particles.push(new ToxicParticle(
+                    random(width), 
+                    height, 
+                    {h: random(80, 140), s: 80, b: 70}
+                ));
+            }
+            
+            // Update organism count
+            document.getElementById('count').textContent = organisms.length;
+            
+            // Auto-spawn new organisms occasionally
+            if (random() < 0.005 && organisms.length < 12) {
+                organisms.push(new Organism(random(width), random(height * 0.8, height)));
+            }
+        }
+
+        function mousePressed() {
+            organisms.push(new Organism(mouseX, mouseY));
+        }
+
+        function resetGarden() {
+            organisms = [];
+            particles = [];
+            for (let i = 0; i < 3; i++) {
+                organisms.push(new Organism(random(width), height - 50));
+            }
+        }
+
+        function toggleGrowth() {
+            growthActive = !growthActive;
+        }
+
+        function mutate() {
+            for (let organism of organisms) {
+                organism.dna.color.h = random(80, 140);
+                organism.dna.toxicity = random(0.3, 1.0);
+                organism.dna.curviness = random(0.05, 0.15);
+                organism.angleVel = random(-0.03, 0.03);
+            }
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
+</body>
 </html>
